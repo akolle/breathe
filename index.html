@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en" data-theme="obsidian">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Breathe // The Peaceful Dev</title>
+    <style>
+      /* Theme Engine Variables */
+      :root[data-theme="obsidian"] {
+        --bg: #0d0e11;
+        --text-main: #e2e8f0;
+        --text-muted: #64748b;
+        --accent: #38bdf8;
+        --circle-glow: rgba(56, 189, 248, 0.15);
+        --border: rgba(255, 255, 255, 0.12);
+      }
+
+      :root[data-theme="paper"] {
+        --bg: #fbf7ee;
+        --text-main: #2d3748;
+        --text-muted: #718096;
+        --accent: #4a7c59;
+        --circle-glow: rgba(74, 124, 89, 0.15);
+        --border: rgba(0, 0, 0, 0.12);
+      }
+
+      :root[data-theme="twilight"] {
+        --bg: #1a1412;
+        --text-main: #e2b897;
+        --text-muted: #9a7b66;
+        --accent: #d97706;
+        --circle-glow: rgba(217, 119, 6, 0.15);
+        --border: rgba(226, 184, 151, 0.15);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background-color: var(--bg);
+        color: var(--text-main);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: space-between;
+        padding: 2rem;
+        overflow: hidden;
+        transition:
+          background-color 0.4s ease,
+          color 0.4s ease;
+      }
+
+      header {
+        width: 100%;
+        max-width: 600px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.85rem;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+      }
+
+      .theme-selector {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      .theme-btn {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+        padding: 0.25rem 0.6rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .theme-btn:hover,
+      .theme-btn.active {
+        color: var(--accent);
+        border-color: var(--accent);
+      }
+
+      .container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2rem;
+      }
+
+      .visualizer-stage {
+        position: relative;
+        width: 220px;
+        height: 220px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .ring-outer {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        border: 1px solid var(--border);
+        border-radius: 50%;
+      }
+
+      .breath-circle {
+        width: 75px;
+        height: 75px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 40px var(--circle-glow);
+        transition:
+          transform 0.1s linear,
+          background 0.4s ease;
+      }
+
+      .inhale {
+        transition: transform 4s ease-in-out;
+        transform: scale(2.6);
+      }
+      .hold {
+        transition: transform 7s linear;
+        transform: scale(2.6);
+      }
+      .exhale {
+        transition: transform 8s ease-in-out;
+        transform: scale(1);
+      }
+
+      .instruction {
+        font-size: 1.25rem;
+        font-weight: 300;
+        letter-spacing: 0.05em;
+        min-height: 2rem;
+      }
+
+      .timer {
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .start-btn {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text-main);
+        padding: 0.75rem 2rem;
+        border-radius: 999px;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .start-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      footer {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span>The Peaceful Dev</span>
+      <div class="theme-selector">
+        <button class="theme-btn active" onclick="setTheme('obsidian', this)">
+          Obsidian
+        </button>
+        <button class="theme-btn" onclick="setTheme('paper', this)">
+          Paper
+        </button>
+        <button class="theme-btn" onclick="setTheme('twilight', this)">
+          Twilight
+        </button>
+      </div>
+    </header>
+
+    <div class="container">
+      <div class="visualizer-stage">
+        <div class="ring-outer"></div>
+        <div class="breath-circle" id="circle"></div>
+      </div>
+
+      <div class="instruction" id="label">Press Start to Begin</div>
+      <div class="timer" id="counter">--</div>
+
+      <button class="start-btn" id="toggleBtn" onclick="toggleBreathing()">
+        Start Session
+      </button>
+    </div>
+
+    <footer>4-7-8 Parasympathetic Rhythm</footer>
+
+    <script>
+      let active = false;
+      let timerId = null;
+      let countId = null;
+
+      const circle = document.getElementById("circle");
+      const label = document.getElementById("label");
+      const counter = document.getElementById("counter");
+      const btn = document.getElementById("toggleBtn");
+
+      function setTheme(themeName, btnEl) {
+        document.documentElement.setAttribute("data-theme", themeName);
+        document
+          .querySelectorAll(".theme-btn")
+          .forEach((b) => b.classList.remove("active"));
+        btnEl.classList.add("active");
+      }
+
+      function toggleBreathing() {
+        active ? stopSession() : startSession();
+      }
+
+      function startSession() {
+        active = true;
+        btn.innerText = "Stop Session";
+        runCycle();
+      }
+
+      function stopSession() {
+        active = false;
+        clearTimeout(timerId);
+        clearInterval(countId);
+        btn.innerText = "Start Session";
+        label.innerText = "Session Paused";
+        counter.innerText = "--";
+        circle.className = "breath-circle";
+      }
+
+      function countdown(seconds, callback) {
+        let remaining = seconds;
+        counter.innerText = remaining + "s";
+        clearInterval(countId);
+        countId = setInterval(() => {
+          remaining--;
+          if (remaining > 0) {
+            counter.innerText = remaining + "s";
+          } else {
+            clearInterval(countId);
+            if (callback) callback();
+          }
+        }, 1000);
+      }
+
+      function runCycle() {
+        if (!active) return;
+        label.innerText = "Inhale slowly...";
+        circle.className = "breath-circle inhale";
+        countdown(4, () => {
+          if (!active) return;
+          label.innerText = "Hold breath...";
+          circle.className = "breath-circle hold";
+          countdown(7, () => {
+            if (!active) return;
+            label.innerText = "Exhale completely...";
+            circle.className = "breath-circle exhale";
+            countdown(8, () => {
+              if (active) runCycle();
+            });
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
