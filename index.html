@@ -67,6 +67,12 @@
         color: var(--text-muted);
       }
 
+      .controls-group {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
       .theme-selector {
         display: flex;
         gap: 0.5rem;
@@ -175,16 +181,21 @@
   <body>
     <header>
       <span>The Peaceful Dev</span>
-      <div class="theme-selector">
-        <button class="theme-btn active" onclick="setTheme('obsidian', this)">
-          Obsidian
+      <div class="controls-group">
+        <button class="theme-btn active" id="soundBtn" onclick="toggleSound()">
+          Sound: On
         </button>
-        <button class="theme-btn" onclick="setTheme('paper', this)">
-          Paper
-        </button>
-        <button class="theme-btn" onclick="setTheme('twilight', this)">
-          Twilight
-        </button>
+        <div class="theme-selector">
+          <button class="theme-btn active" onclick="setTheme('obsidian', this)">
+            Obsidian
+          </button>
+          <button class="theme-btn" onclick="setTheme('paper', this)">
+            Paper
+          </button>
+          <button class="theme-btn" onclick="setTheme('twilight', this)">
+            Twilight
+          </button>
+        </div>
       </div>
     </header>
 
@@ -205,6 +216,330 @@
     <footer>4-7-8 Parasympathetic Rhythm</footer>
 
     <script>
+      class PeacefulAudio {
+        constructor() {
+          this.ctx = null;
+          this.isPlaying = false;
+          this.isMuted = false;
+
+          this.masterGain = null;
+          this.rainGain = null;
+          this.rainLowpass = null;
+          this.chimeGain = null;
+          this.thunderGain = null;
+
+          this.thunderTimer = null;
+          this.brownNoiseBuffer = null;
+        }
+
+        init() {
+          if (this.ctx) {
+            if (this.ctx.state === "suspended") this.ctx.resume();
+            return;
+          }
+
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioCtx();
+
+          this.masterGain = this.ctx.createGain();
+          this.masterGain.gain.setValueAtTime(0.001, this.ctx.currentTime);
+          this.masterGain.connect(this.ctx.destination);
+
+          this.rainGain = this.ctx.createGain();
+          this.rainGain.gain.value = 0.42;
+          this.rainGain.connect(this.masterGain);
+
+          this.chimeGain = this.ctx.createGain();
+          this.chimeGain.gain.value = 0.35;
+          this.chimeGain.connect(this.masterGain);
+
+          this.thunderGain = this.ctx.createGain();
+          this.thunderGain.gain.value = 0.85;
+          this.thunderGain.connect(this.masterGain);
+
+          this._setupRain();
+          this._createBrownNoiseBuffer();
+        }
+
+        _setupRain() {
+          const sampleRate = this.ctx.sampleRate;
+          const bufferSize = sampleRate * 6;
+          const washBuffer = this.ctx.createBuffer(1, bufferSize, sampleRate);
+          const dropBuffer = this.ctx.createBuffer(1, bufferSize, sampleRate);
+
+          const washData = washBuffer.getChannelData(0);
+          const dropData = dropBuffer.getChannelData(0);
+
+          let b0 = 0,
+            b1 = 0,
+            b2 = 0,
+            b3 = 0,
+            b4 = 0,
+            b5 = 0,
+            b6 = 0;
+          for (let i = 0; i < bufferSize; i++) {
+            const white = Math.random() * 2 - 1;
+            b0 = 0.99886 * b0 + white * 0.0555179;
+            b1 = 0.99332 * b1 + white * 0.0750759;
+            b2 = 0.969 * b2 + white * 0.153852;
+            b3 = 0.8665 * b3 + white * 0.3104856;
+            b4 = 0.55 * b4 + white * 0.5329522;
+            b5 = -0.7616 * b5 - white * 0.016898;
+            washData[i] =
+              (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.03;
+            b6 = white * 0.115926;
+          }
+
+          let dropEnvelope = 0;
+          for (let i = 0; i < bufferSize; i++) {
+            if (Math.random() < 0.0011) {
+              dropEnvelope = 0.3 + Math.random() * 0.7;
+            }
+            dropData[i] = (Math.random() * 2 - 1) * dropEnvelope;
+            dropEnvelope *= 0.985;
+          }
+
+          const washSource = this.ctx.createBufferSource();
+          washSource.buffer = washBuffer;
+          washSource.loop = true;
+
+          this.rainLowpass = this.ctx.createBiquadFilter();
+          this.rainLowpass.type = "lowpass";
+          this.rainLowpass.frequency.value = 620;
+          this.rainLowpass.Q.value = 0.5;
+
+          const washGain = this.ctx.createGain();
+          washGain.gain.value = 0.75;
+
+          washSource.connect(this.rainLowpass);
+          this.rainLowpass.connect(washGain);
+          washGain.connect(this.rainGain);
+
+          const dropSource = this.ctx.createBufferSource();
+          dropSource.buffer = dropBuffer;
+          dropSource.loop = true;
+
+          const dropFilter = this.ctx.createBiquadFilter();
+          dropFilter.type = "bandpass";
+          dropFilter.frequency.value = 2100;
+          dropFilter.Q.value = 2.2;
+
+          const dropGain = this.ctx.createGain();
+          dropGain.gain.value = 0.85;
+
+          dropSource.connect(dropFilter);
+          dropFilter.connect(dropGain);
+          dropGain.connect(this.rainGain);
+
+          const swellOsc = this.ctx.createOscillator();
+          const swellDepth = this.ctx.createGain();
+          swellOsc.type = "sine";
+          swellOsc.frequency.value = 0.07;
+          swellDepth.gain.value = 0.08;
+
+          swellOsc.connect(swellDepth);
+          swellDepth.connect(this.rainGain.gain);
+
+          washSource.start();
+          dropSource.start();
+          swellOsc.start();
+        }
+
+        _createBrownNoiseBuffer() {
+          const sampleRate = this.ctx.sampleRate;
+          const bufferSize = sampleRate * 8;
+          this.brownNoiseBuffer = this.ctx.createBuffer(
+            1,
+            bufferSize,
+            sampleRate,
+          );
+          const data = this.brownNoiseBuffer.getChannelData(0);
+
+          let lastOut = 0.0;
+          let maxVal = 0.0001;
+
+          for (let i = 0; i < bufferSize; i++) {
+            const white = Math.random() * 2 - 1;
+            lastOut = (lastOut + 0.03 * white) / 1.03;
+            data[i] = lastOut;
+            if (Math.abs(lastOut) > maxVal) maxVal = Math.abs(lastOut);
+          }
+
+          // Peak-normalize buffer to 0.95 so thunder has strong, consistent headroom
+          const normFactor = 0.95 / maxVal;
+          for (let i = 0; i < bufferSize; i++) {
+            data[i] *= normFactor;
+          }
+        }
+
+        _scheduleNextThunder(isFirst = false) {
+          clearTimeout(this.thunderTimer);
+          if (!this.isPlaying) return;
+
+          // First rumble arrives 3s after Start so you can verify immediately; then every 18-32s
+          const delayMs = isFirst ? 3000 : (18 + Math.random() * 14) * 1000;
+
+          this.thunderTimer = setTimeout(() => {
+            if (this.isPlaying && !this.isMuted) {
+              this.triggerThunder();
+            }
+            this._scheduleNextThunder(false);
+          }, delayMs);
+        }
+
+        triggerThunder() {
+          if (!this.ctx || !this.brownNoiseBuffer) return;
+
+          const now = this.ctx.currentTime;
+          const totalDuration = 5.5 + Math.random() * 2.5;
+
+          const source = this.ctx.createBufferSource();
+          source.buffer = this.brownNoiseBuffer;
+          const randomOffset = Math.random() * 1.5;
+
+          // Warm low-mid body filter (220Hz - 340Hz) so it translates clearly on all speakers
+          const bodyFilter = this.ctx.createBiquadFilter();
+          bodyFilter.type = "lowpass";
+          const startFreq = 260 + Math.random() * 100;
+          bodyFilter.frequency.setValueAtTime(startFreq, now);
+          bodyFilter.frequency.exponentialRampToValueAtTime(
+            110,
+            now + totalDuration,
+          );
+          bodyFilter.Q.value = 1.6;
+
+          // Low-shelf warmth boost at 150Hz
+          const warmthShelf = this.ctx.createBiquadFilter();
+          warmthShelf.type = "lowshelf";
+          warmthShelf.frequency.value = 150;
+          warmthShelf.gain.value = 8;
+
+          const panner = this.ctx.createStereoPanner
+            ? this.ctx.createStereoPanner()
+            : null;
+          if (panner) {
+            panner.pan.setValueAtTime(Math.random() * 0.9 - 0.45, now);
+          }
+
+          const envGain = this.ctx.createGain();
+          envGain.gain.setValueAtTime(0.0001, now);
+
+          // Audible, rolling multi-peak envelope
+          const peakIntensity = 0.75 + Math.random() * 0.25;
+          const peaks = [
+            { time: 0.25, level: peakIntensity },
+            { time: 1.05, level: peakIntensity * 0.7 },
+            { time: 2.1, level: peakIntensity * 0.48 },
+            { time: 3.4, level: peakIntensity * 0.25 },
+          ];
+
+          peaks.forEach((p) => {
+            envGain.gain.linearRampToValueAtTime(p.level, now + p.time);
+            envGain.gain.exponentialRampToValueAtTime(
+              Math.max(0.001, p.level * 0.42),
+              now + p.time + 0.55,
+            );
+          });
+
+          envGain.gain.exponentialRampToValueAtTime(
+            0.0001,
+            now + totalDuration,
+          );
+
+          source.connect(bodyFilter);
+          bodyFilter.connect(warmthShelf);
+          warmthShelf.connect(envGain);
+
+          if (panner) {
+            envGain.connect(panner);
+            panner.connect(this.thunderGain);
+          } else {
+            envGain.connect(this.thunderGain);
+          }
+
+          source.start(now, randomOffset, totalDuration + 0.2);
+          source.stop(now + totalDuration + 0.25);
+        }
+
+        start() {
+          this.init();
+          this.isPlaying = true;
+          const now = this.ctx.currentTime;
+          this.masterGain.gain.cancelScheduledValues(now);
+          this.masterGain.gain.setTargetAtTime(
+            this.isMuted ? 0 : 1.0,
+            now,
+            0.8,
+          );
+          this._scheduleNextThunder(true);
+        }
+
+        stop() {
+          if (!this.ctx) return;
+          this.isPlaying = false;
+          clearTimeout(this.thunderTimer);
+          const now = this.ctx.currentTime;
+          this.masterGain.gain.cancelScheduledValues(now);
+          this.masterGain.gain.setTargetAtTime(0.0001, now, 0.6);
+        }
+
+        toggleMute() {
+          this.isMuted = !this.isMuted;
+          if (this.ctx && this.isPlaying) {
+            this.masterGain.gain.setTargetAtTime(
+              this.isMuted ? 0 : 1.0,
+              this.ctx.currentTime,
+              0.25,
+            );
+          }
+          return this.isMuted;
+        }
+
+        syncBreath(phase, durationSec = 4) {
+          if (!this.ctx || !this.isPlaying || this.isMuted) return;
+
+          const now = this.ctx.currentTime;
+          const timeConstant = durationSec * 0.35;
+
+          if (phase === "inhale") {
+            this.rainLowpass.frequency.setTargetAtTime(980, now, timeConstant);
+            this.rainGain.gain.setTargetAtTime(0.52, now, timeConstant);
+            this._playChime([261.63, 392.0]);
+          } else if (phase === "hold") {
+            this._playChime([523.25], 0.12);
+          } else if (phase === "exhale") {
+            this.rainLowpass.frequency.setTargetAtTime(440, now, timeConstant);
+            this.rainGain.gain.setTargetAtTime(0.32, now, timeConstant);
+            this._playChime([329.63, 261.63]);
+          }
+        }
+
+        _playChime(freqs, peakVolume = 0.22) {
+          const now = this.ctx.currentTime;
+
+          freqs.forEach((freq, index) => {
+            const osc = this.ctx.createOscillator();
+            const noteGain = this.ctx.createGain();
+
+            osc.type = "sine";
+            const startTime = now + index * 0.14;
+            osc.frequency.setValueAtTime(freq, startTime);
+
+            noteGain.gain.setValueAtTime(0.0001, startTime);
+            noteGain.gain.linearRampToValueAtTime(peakVolume, startTime + 0.25);
+            noteGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 3.2);
+
+            osc.connect(noteGain);
+            noteGain.connect(this.chimeGain);
+
+            osc.start(startTime);
+            osc.stop(startTime + 3.3);
+          });
+        }
+      }
+
+      const peacefulAudio = new PeacefulAudio();
+
       let active = false;
       let timerId = null;
       let countId = null;
@@ -213,13 +548,20 @@
       const label = document.getElementById("label");
       const counter = document.getElementById("counter");
       const btn = document.getElementById("toggleBtn");
+      const soundBtn = document.getElementById("soundBtn");
 
       function setTheme(themeName, btnEl) {
         document.documentElement.setAttribute("data-theme", themeName);
         document
-          .querySelectorAll(".theme-btn")
+          .querySelectorAll(".theme-selector .theme-btn")
           .forEach((b) => b.classList.remove("active"));
         btnEl.classList.add("active");
+      }
+
+      function toggleSound() {
+        const muted = peacefulAudio.toggleMute();
+        soundBtn.innerText = muted ? "Sound: Off" : "Sound: On";
+        soundBtn.classList.toggle("active", !muted);
       }
 
       function toggleBreathing() {
@@ -229,6 +571,7 @@
       function startSession() {
         active = true;
         btn.innerText = "Stop Session";
+        peacefulAudio.start();
         runCycle();
       }
 
@@ -236,6 +579,7 @@
         active = false;
         clearTimeout(timerId);
         clearInterval(countId);
+        peacefulAudio.stop();
         btn.innerText = "Start Session";
         label.innerText = "Session Paused";
         counter.innerText = "--";
@@ -261,14 +605,20 @@
         if (!active) return;
         label.innerText = "Inhale slowly...";
         circle.className = "breath-circle inhale";
+        peacefulAudio.syncBreath("inhale", 4);
+
         countdown(4, () => {
           if (!active) return;
           label.innerText = "Hold breath...";
           circle.className = "breath-circle hold";
+          peacefulAudio.syncBreath("hold", 7);
+
           countdown(7, () => {
             if (!active) return;
             label.innerText = "Exhale completely...";
             circle.className = "breath-circle exhale";
+            peacefulAudio.syncBreath("exhale", 8);
+
             countdown(8, () => {
               if (active) runCycle();
             });
